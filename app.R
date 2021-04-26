@@ -15,10 +15,13 @@ library(httr)
 library(googledrive)
 # loadfonts(device = "win", quiet = TRUE)
 # options(gargle_verbosity = "debug")
+options(readr.num_columns = 0)
 Sys.setenv(TZ = 'America/New_York')
 
 ### GLOBAL VARIABLES
-lee_logos <- read_csv(here('data', "lee_logos.csv"))
+logos <- 
+  read_csv(here('data', "logos.csv")) %>% 
+  select(abbrv = abbrv_nflfastr, team = team_nflfastr, team_logo, draft_franchise_id)
 font <- '' # 'Roboto' # get rid of this cuz windows -> linux (shinyapps.io) is bad
 
 # drive_auth_configure(path = here('.R', 'gargle', 'client_secret.json'), active = FALSE)
@@ -32,32 +35,27 @@ refresh_draft_order <- function(...) {
     'https://www.pff.com/api/mock_draft_simulator/draft_picks' %>%
     httr::GET() %>%
     httr::content('parsed') 
-  resp
-  
-  .pluck <- function(x) {
-    resp %>% pluck(x) %>% enframe() %>% unnest_wider(value)
-  }
-  
-  teams <- .pluck('teams')
-  picks <- .pluck('draft_picks')
+  # resp
+
+  picks <- resp %>% pluck('draft_picks') %>% enframe() %>% unnest_wider(value)
   
   draft_order <-
     picks %>% 
-    left_join(teams %>% select(draft_franchise_id = franchise_id, abbrv = abbreviation, city, nickname)) %>% 
-    select(round, pick, abbrv) %>% 
-    left_join(lee_logos %>% select(abbrv, team))
+    select(round, pick, draft_franchise_id) %>% 
+    # Could just use
+    inner_join(logos %>% select(abbrv, team, draft_franchise_id), by = 'draft_franchise_id')
   write_csv(draft_order, here('data', 'draft_order.csv'))
   draft_order
 }
 
-# Not actually using path here, since we should always be re-downloading from the drive.
+# Not actually using any user input here, since we should always be re-downloading from the drive.
 f_read <- function(...) {
   cat(sprintf('%s: Re-reading input.', Sys.time()), sep = '\n')
 
   from_googldrive <- TRUE
   if(from_googldrive) {
     # googledrive::drive_auth(path = here::here('.R', 'gargle', 'client_secret.json'))
-    drive_files <- googledrive::drive_find(n_max = 5) # download from your drive (should be in 5 most recent)
+    drive_files <- googledrive::drive_find(pattern = 'comments', type = 'csv', n_max = 2) # download from your drive
     comments_file <- drive_files %>% filter(name == 'comments.csv')
     res_dl <-
       comments_file %>%
@@ -67,7 +65,8 @@ f_read <- function(...) {
     res <- read.csv(here('data', 'comments.csv'), sep="\t", stringsAsFactors = FALSE, quote="") 
   }
   cat(sprintf('%s: # of rows: %s', Sys.time(), nrow(res)), sep = '\n')
-  res
+  res %>% 
+    mutate(team = if_else(team == 'Redskins', 'Football Team', team))
 }
 
 
@@ -75,7 +74,8 @@ nfl_teams <- teamcolors %>%
   filter(league == "nfl") %>%
   dplyr::select(mascot, division, primary) %>%
   rename(team = mascot) %>%
-  left_join(lee_logos) %>%
+  mutate(team = if_else(team == 'Redskins', 'Football Team', team)) %>% 
+  left_join(logos) %>%
   mutate(team_logo = as.character(team_logo))
 logo_grobs <- image_read(nfl_teams$team_logo)
 
@@ -280,7 +280,8 @@ server <- function(input, output, session) {
         dplyr::select(nfl_teams, team),
         (comment_data %>%
           group_by(team) %>%
-          summarise(sentiment = mean(sentiment)))
+          summarise(sentiment = mean(sentiment))),
+        by = 'team'
       ) %>%
         mutate(
           sentiment = replace_na(sentiment, 0),
@@ -562,7 +563,7 @@ server <- function(input, output, session) {
     t_string <- strftime(t, "%I:%M %p")
 
     dat <- as_tibble(fileReaderData()) %>%
-      left_join(lee_logos) %>%
+      left_join(logos) %>%
       tail(14) %>%
       mutate(
         time = as_datetime(timestamp),
@@ -601,7 +602,7 @@ server <- function(input, output, session) {
 
     # get latest comment
     # comment <- as_tibble(fileReaderData()) %>%
-    #     left_join(lee_logos) %>%
+    #     left_join(logos) %>%
     #     filter(team == curr_team) %>%
     #     tail(1) %>%
     #     mutate(time = as.character(as_datetime(timestamp-14400))) %>%
@@ -682,7 +683,7 @@ server <- function(input, output, session) {
   output$pickOrder <- renderText({
     # setup image strings
     dat <- obj$dat_picks %>%
-      left_join(lee_logos) %>%
+      left_join(logos) %>%
       mutate(pick_html = if_else(
         pick >= obj$curr_pick,
         paste("<h5><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h5>", sep = ""),
