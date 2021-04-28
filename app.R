@@ -213,7 +213,7 @@ ui <- fluidPage(
     # Sidebar with a slider input
     sidebarPanel(
       width = 3,
-      style = "text-overflow: clip;",
+      style = "text-overflow: clip; font-size: 18p;",
       htmlOutput("recentComments")
     ),
     # Show a plot of the generated distribution
@@ -238,7 +238,7 @@ ui <- fluidPage(
       ),
       column(
         2,
-        htmlOutput("pickOrder")
+        htmlOutput("pickOrder", style = "font-size:18px")
       )
     )
   )
@@ -273,6 +273,7 @@ server <- function(input, output, session) {
       # only in window
       comment_data <- comment_data %>%
         filter(as.numeric(Sys.time()) - timestamp <= 120)
+        # filter(as.numeric(Sys.time()) - timestamp <= (10 * 60))
 
       # get moving average
       var_time <- as.character(5 * obj$n)
@@ -317,33 +318,6 @@ server <- function(input, output, session) {
     }
   })
 
-  # output$scatterPlot <- renderPlot({
-  #     req(obj$scatter_table)
-  #
-  #     #plot
-  #     p <- obj$scatter_table %>%
-  #         left_join(nfl_teams) %>%
-  #         ggplot(aes(x=pos_freq,y=n)) +
-  #         geom_grob(aes(label = logo_grob, pos_freq, n), vp.height = 0.1, vp.width = 0.1) +
-  #         geom_vline(xintercept = mean(obj$scatter_table$pos_freq), linetype="longdash", alpha=0.5) +
-  #         geom_hline(yintercept = mean(obj$scatter_table$n), linetype="longdash", alpha=0.5) +
-  #         scale_color_identity() +
-  #         scale_x_continuous(limits=c(0,1)) +
-  #         theme_minimal() +
-  #         labs(
-  #             title = "Fanbase comment frequency and comment positive over last 30 mins",
-  #             caption = "@CaioBrighenti2",
-  #             y = "number of comments (last 30 mins)",
-  #             x = "share of positive comments (last 30 mins)"
-  #         ) +
-  #         theme(
-  #             legend.position = "none",
-  #             text = element_text(family=font)
-  #         )
-  #
-  #     print(p)
-  # })
-
   ######################################
   ####### LINE CHART BY DIVISION #######
   ######################################
@@ -369,7 +343,7 @@ server <- function(input, output, session) {
       labs(
         title = "Rolling average of Reddit comment sentiment by fanbase",
         caption = "",
-        y = "mean sentiment (prior 2 mins)",
+        y = "mean sentiment (prior 5 mins)",
         x = paste("minutes before", t_string)
       ) +
       theme(
@@ -387,7 +361,8 @@ server <- function(input, output, session) {
 
     # load in reactive data
     comment_data <- as_tibble(fileReaderData()) %>%
-      filter(as.numeric(Sys.time()) - timestamp <= 120) %>%
+      # filter(as.numeric(Sys.time()) - timestamp <= 120) %>%
+      filter(as.numeric(Sys.time()) - timestamp <= (5 * 60)) %>%
       drop_na() %>%
       filter(team != "") %>%
       group_by(team) %>%
@@ -406,7 +381,7 @@ server <- function(input, output, session) {
       scale_y_discrete(expand = c(0, 1)) +
       theme_minimal() +
       labs(
-        title = "Mean comment sentiment (prior 2 mins)",
+        title = "Mean comment sentiment (prior 5 mins)",
         subtitle = "",
         caption = "",
         x = "mean sentiment",
@@ -428,7 +403,8 @@ server <- function(input, output, session) {
 
     # load in reactive data
     comment_data <- as_tibble(fileReaderData()) %>%
-      filter(as.numeric(Sys.time()) - timestamp <= 120) %>%
+      # filter(as.numeric(Sys.time()) - timestamp <= 120) %>%
+      filter(as.numeric(Sys.time()) - timestamp <= (5 * 60)) %>%
       drop_na() %>%
       filter(team != "") %>%
       group_by(team) %>%
@@ -445,7 +421,7 @@ server <- function(input, output, session) {
       geom_vline(xintercept = mean(comment_data$n), linetype = "longdash", alpha = 0.5) +
       theme_minimal() +
       labs(
-        title = "Number of comments (prior 2 mins)",
+        title = "Number of comments (prior 5 mins)",
         x = "number of comments",
         y = ""
       ) +
@@ -468,7 +444,8 @@ server <- function(input, output, session) {
 
     # get data
     sent <- as_tibble(fileReaderData()) %>%
-      filter(as.numeric(Sys.time()) - timestamp <= 120) %>%
+      # filter(as.numeric(Sys.time()) - timestamp <= 120) %>%
+      filter(as.numeric(Sys.time()) - timestamp <= (5 * 60)) %>%
       drop_na() %>%
       filter(team == curr_team) %>%
       summarize(sent = sum(sentiment)) %>%
@@ -686,10 +663,10 @@ server <- function(input, output, session) {
       left_join(logos) %>%
       mutate(pick_html = if_else(
         pick >= obj$curr_pick,
-        paste("<h5><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h5>", sep = ""),
-        paste("<del><h5><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h5></del>", sep = "")
+        paste("<h><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h4>", sep = ""),
+        paste("<del><h4><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h4></del>", sep = "")
       ))
-    HTML(paste("<h4><i>Draft Order</i></h4>", paste(dat$pick_html, collapse = ""), "</br><h6>Built by @CaioBrighenti </br> Data from PRAW</h6>"))
+    HTML(paste("<h3><i>Draft Order</i></h3>", paste(dat$pick_html, collapse = ""), "</br><h6>Built by @CaioBrighenti </br> Data from PRAW</h6>"))
   })
 
   observeEvent(input$pickrefresh, {

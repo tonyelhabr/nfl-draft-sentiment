@@ -2,3 +2,6 @@
 .Rproj
 .secrets/
 rsconnect/
+auth.txt
+.ipynb_checkpoints/
+.vscode/
