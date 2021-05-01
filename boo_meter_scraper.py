@@ -12,8 +12,10 @@ import warnings
 import enchant
 
 # lexicon for known english words
+# lexicon for known english words
 words = enchant.Dict("en")
 is_known_word = words.check
+
 
 ## coreNLP sent. analysis
 def getSentiment(text):
@@ -24,11 +26,10 @@ def getSentiment(text):
 
     # annotate text
     output = nlp.annotate(
-    text,
-    properties={
-        "outputFormat": "json",
-        "annotators": "sentiment"
-    }
+        text, properties={
+            "outputFormat": "json",
+            "annotators": "sentiment"
+        }
     )
 
     # grab sentiment
@@ -44,19 +45,25 @@ def getSentiment(text):
     else:
         raise Exception("Comment length 0")
 
+
 def remove_consecutive_dups(s):
     return re.sub(r'(?i)(.)\1+', r'\1', s)
 
+
 def all_consecutive_duplicates_edits(word, max_repeat=float('inf')):
-    chars = [[c*i for i in range(min(len(list(dups)), max_repeat), 0, -1)]
-             for c, dups in groupby(word)]
+    chars = [
+        [c * i for i in range(min(len(list(dups)), max_repeat), 0, -1)]
+        for c, dups in groupby(word)
+    ]
     return map(''.join, product(*chars))
+
 
 def isnan(string):
     """
   checks if input is a nan (works for strings)
   """
     return string != string
+
 
 def remove_elongations_bro(line):
     """
@@ -67,11 +74,17 @@ def remove_elongations_bro(line):
         return None
 
     else:
-        output = [next((e for e in all_consecutive_duplicates_edits(s)
-                        if e and is_known_word(e)), remove_consecutive_dups(s))
-                  for s in re.split(r'(\W+)', line)]
+        output = [
+            next(
+                (
+                    e for e in all_consecutive_duplicates_edits(s)
+                    if e and is_known_word(e)
+                ), remove_consecutive_dups(s)
+            ) for s in re.split(r'(\W+)', line)
+        ]
         line_no_elongs = ''.join(output)
         return line_no_elongs
+
 
 def censor_profanity(comment_text, profanity_threshold=0.9):
     """
@@ -80,41 +93,22 @@ def censor_profanity(comment_text, profanity_threshold=0.9):
   Input: comment_text (str)
   Output: comment text with profane words censored 
   """
-    repl_text = [(x,f"{x[0]}{''.join(['*' for x in range(len(x)-1)])}") for x in comment_text.split(' ') if predict_prob([x])[0]>profanity_threshold]
+    repl_text = [
+        (x, f"{x[0]}{''.join(['*' for x in range(len(x)-1)])}")
+        for x in comment_text.split(' ')
+        if predict_prob([x])[0] > profanity_threshold
+    ]
     comment_text_censored = comment_text
     for text in repl_text:
         comment_text_censored = comment_text_censored.replace(text[0], text[1])
     return comment_text_censored
 
-#
-# auth_file= open('drive/My Drive/boo_meter/auth.txt')
-# auth_file = auth_file.read()
-# auth_file = auth_file.split(', ')
-# auth_file[0]
 
 ## INIT GLOBAL VARS
-chunk_size = 5000
+chunk_size = 10000
 num_chunks = 0
 
-## INIT REDDIT INSTANCE
-auth_file= open('auth.txt')
-auth_file = auth_file.read()
-
-auth_file = auth_file.split(', ')
-client_id = auth_file[0]
-client_secret = auth_file[1]
-username = auth_file[2]
-pw = auth_file[3]
 #%%
-# print(pw)
-#%%
-reddit = praw.Reddit(client_id=client_id,
-                     client_secret=client_secret,
-                     user_agent="nfl boo meter 'by' nickwan",
-                     username=username,
-                     password=pw,
-                     check_for_async=False)
-
 ## INIT PROFANITY FILTER
 
 ## Note: don't think we need this anymore; replaced this with a faster filter
@@ -134,53 +128,75 @@ vader = SentimentIntensityAnalyzer()
 ## INIT SAVE DIRECTORY
 # comments_directory = "path/to/directory"
 comments_directory = 'data'
-
-with open(f'{comments_directory}/comments.csv', 'w+', newline='') as csvfile:
-    # initiate csv writer
-    comment_writer = csv.writer(csvfile, delimiter='\t',
-                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
-    # write header
-    comment_writer.writerow(["timestamp", "team", "body", "length",
-                             "sentiment", "subreddit", "boo", "id", "body_full"])
+path_comments = f'{comments_directory}/comments.csv'
+if not os.path.exists(path_comments):
+    with open(path_comments, 'w+', newline='') as csvfile:
+        # initiate csv writer
+        comment_writer = csv.writer(
+            csvfile, delimiter='\t', quotechar='|', quoting=csv.QUOTE_MINIMAL
+        )
+        # write header
+        comment_writer.writerow(
+            [
+                "timestamp", "team", "body", "length", "sentiment", "subreddit",
+                "boo", "id", "body_full"
+            ]
+        )
 
 # setup multireddit
-team_subreddits = ["KansasCityChiefs", "raiders", "DenverBroncos", "Chargers", "Colts",
-                   "Tennesseetitans", "Texans", "Jaguars", "bengals", "steelers",
-                   "ravens", "Browns", "miamidolphins", "nyjets", "buffalobills",
-                   "Patriots", "cowboys", "NYGiants", "eagles", "Redskins", "CHIBears",
-                   "GreenBayPackers", "detroitlions", "minnesotavikings", "falcons",
-                   "Saints", "panthers", "buccaneers" ,"AZCardinals", "49ers",
-                   "LosAngelesRams", "Seahawks"]
+team_subreddits = [
+    "KansasCityChiefs", "raiders", "DenverBroncos", "Chargers", "Colts",
+    "Tennesseetitans", "Texans", "Jaguars", "bengals", "steelers", "ravens",
+    "Browns", "miamidolphins", "nyjets", "buffalobills", "Patriots", "cowboys",
+    "NYGiants", "eagles", "washingtonNFL", "CHIBears", "GreenBayPackers",
+    "detroitlions", "minnesotavikings", "falcons", "Saints", "panthers",
+    "buccaneers", "AZCardinals", "49ers", "LosAngelesRams", "Seahawks"
+]
 
-team_names = ["Chiefs", "Raiders", "Broncos", "Chargers", "Colts", "Titans",
-              "Texans", "Jaguars", "Bengals", "Steelers", "Ravens", "Browns",
-              "Dolphins", "Jets", "Bills", "Patriots", "Cowboys", "Giants",
-              "Eagles", "Redskins", "Bears", "Packers", "Lions", "Vikings",
-              "Falcons", "Saints", "Panthers", "Buccaneers", "Cardinals",
-              "49ers", "Rams", "Seahawks"]
-teams_dict = dict(zip(team_subreddits,team_names))
+team_names = [
+    "Chiefs", "Raiders", "Broncos", "Chargers", "Colts", "Titans", "Texans",
+    "Jaguars", "Bengals", "Steelers", "Ravens", "Browns", "Dolphins", "Jets",
+    "Bills", "Patriots", "Cowboys", "Giants", "Eagles", "Redskins", "Bears",
+    "Packers", "Lions", "Vikings", "Falcons", "Saints", "Panthers",
+    "Buccaneers", "Cardinals", "49ers", "Rams", "Seahawks"
+]
+teams_dict = dict(zip(team_subreddits, team_names))
 
-while(True):
+## INIT REDDIT INSTANCE
+auth_file = open('auth.txt')
+auth_file = auth_file.read()
+auth_file = auth_file.split(', ')
+client_id = auth_file[0]
+client_secret = auth_file[1]
+username = auth_file[2]
+pw = auth_file[3]
+#%%
+reddit = praw.Reddit(
+    client_id=client_id,
+    client_secret=client_secret,
+    user_agent="nfl boo meter 'by' nickwan",
+    username=username,
+    password=pw,
+    check_for_async=False
+)
+
+#%%
+
+while (True):
     # loop through comments
     n = 0
     behind_flag = False
-    for idx, comment in (enumerate(reddit.subreddit("+".join(team_subreddits)+"+nfl").stream.comments(skip_existing=True))):
+    for idx, comment in (
+        enumerate(
+            reddit.subreddit("+".join(team_subreddits) +
+                             "+nfl").stream.comments(skip_existing=True)
+        )
+    ):
         ## this is for testing. 5 iterations = ~1 min of comments
         # if idx==50:
         #     break
         # grab time and id
-
-        if behind_flag:
-            reddit = praw.Reddit(
-                client_id=client_id,
-                client_secret=client_secret,
-                user_agent="nfl boo meter 'by' nickwan",
-                username=username,
-                password=pw,
-                check_for_async=False
-            )
-
-        comment_time = comment.created_utc #time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment.created_utc))
+        comment_time = comment.created_utc  #time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment.created_utc))
         comment_id = comment.id
 
         # control for falling behind
@@ -197,6 +213,9 @@ while(True):
         # grab text and remove new lines
         comment_text = comment.body.replace("\n", "")
         comment_text = comment_text.replace("\t", "")
+        comment_text = comment_text.split('http')[0]
+        if len(comment_text) == 0:
+            comment_text = '[Link removed]'
         comment_text = re.sub(r"[^a-zA-Z0-9 !?,.()]+", '', comment_text)
         comment_length = len(comment_text)
 
@@ -231,22 +250,29 @@ while(True):
             print("ERROR: SENTIMENT ANALYSIS FAILED")
 
         # sentiment heuristics
-        if comment_text_clean in ["let's go", "lets go", "fuck yes",
-                                  "fuck yeah", 'lfg', "let's fucking go",
-                                  'lets fucking go']:
+        if comment_text_clean in [
+            "let's go", "lets go", "fuck yes", "fuck yeah", 'lfg',
+            "let's fucking go", 'lets fucking go'
+        ]:
             comment_sent = .7
         elif comment_text_clean in ["boo"]:
             comment_sent = -1
 
         # get goodell boo-meter
-        if "boo" in comment_text_clean.split(" ") or comment_text_clean == "boo":
+        if "boo" in comment_text_clean.split(
+            " "
+        ) or comment_text_clean == "boo":
             comment_boo = 1
         else:
             comment_boo = 0
 
         # visualize and write
-        print([comment_time, comment_team, comment_text,
-               comment_length, comment_sent, comment_subr])
+        print(
+            [
+                comment_time, comment_team, comment_text, comment_length,
+                comment_sent, comment_subr
+            ]
+        )
 
         # filter out profanity
         try:
@@ -258,63 +284,100 @@ while(True):
             print("UNSUPPORTED CHARACTER IN PROFANITY CENSOR")
             continue
 
-
         ## keep track of chunks to cleanup after chunk size comments
         if n >= chunk_size:
             print('CHUNK SIZE HIT, STARTING NEW FILE')
             t = time.time()
             n = -1
-            with open(f'{comments_directory}/comments_temp.csv', 'w', newline='') as csvfile:
+            with open(
+                f'{comments_directory}/comments_temp.csv', 'w', newline=''
+            ) as csvfile:
                 # initiate csv writer
-                comment_writer = csv.writer(csvfile, delimiter='\t',
-                                            quotechar='|',
-                                            quoting=csv.QUOTE_MINIMAL)
+                comment_writer = csv.writer(
+                    csvfile,
+                    delimiter='\t',
+                    quotechar='|',
+                    quoting=csv.QUOTE_MINIMAL
+                )
                 # write header
-                comment_writer.writerow(["timestamp", "team", "body", "length",
-                                         "sentiment", "subreddit", "boo", "id",
-                                         "body_full"])
+                comment_writer.writerow(
+                    [
+                        "timestamp", "team", "body", "length", "sentiment",
+                        "subreddit", "boo", "id", "body_full"
+                    ]
+                )
 
         ## write to temp file
         if n == -1:
             try:
-                with open(f'{comments_directory}/comments_temp.csv', 'a', newline='') as csvfile:
+                with open(
+                    f'{comments_directory}/comments_temp.csv', 'a', newline=''
+                ) as csvfile:
                     # initiate csv writer
-                    comment_writer = csv.writer(csvfile, delimiter='\t',
-                                                quotechar='|',
-                                                quoting=csv.QUOTE_MINIMAL)
+                    comment_writer = csv.writer(
+                        csvfile,
+                        delimiter='\t',
+                        quotechar='|',
+                        quoting=csv.QUOTE_MINIMAL
+                    )
 
-                    comment_writer.writerow([comment_time, comment_team,
-                                             comment_text_censored,
-                                             comment_length, comment_sent,
-                                             comment_subr, comment_boo,
-                                             comment_id, comment_text])
+                    comment_writer.writerow(
+                        [
+                            comment_time, comment_team, comment_text_censored,
+                            comment_length, comment_sent, comment_subr,
+                            comment_boo, comment_id, comment_text
+                        ]
+                    )
             except:
-                print("ERROR: CONFLICT IN USING TEMP FILE OR UNSUPPORTED CHARACTER")
+                print(
+                    "ERROR: CONFLICT IN USING TEMP FILE OR UNSUPPORTED CHARACTER"
+                )
 
         # write file
         try:
-            with open(f'{comments_directory}/comments.csv', 'a', newline='') as csvfile:
+            with open(
+                f'{comments_directory}/comments.csv', 'a', newline=''
+            ) as csvfile:
                 # initiate csv writer
-                comment_writer = csv.writer(csvfile, delimiter='\t',
-                                            quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                comment_writer.writerow([comment_time, comment_team,
-                                         comment_text_censored, comment_length,
-                                         comment_sent, comment_subr,
-                                         comment_boo, comment_id, comment_text])
-                if n !=-1 :
+                comment_writer = csv.writer(
+                    csvfile,
+                    delimiter='\t',
+                    quotechar='|',
+                    quoting=csv.QUOTE_MINIMAL
+                )
+                comment_writer.writerow(
+                    [
+                        comment_time, comment_team, comment_text_censored,
+                        comment_length, comment_sent, comment_subr, comment_boo,
+                        comment_id, comment_text
+                    ]
+                )
+                if n != -1:
                     n += 1
         except:
             print("ERROR: CONFLICT IN USING FILE OR UNSUPPORTED CHARACTER")
 
         ## write to new file after 2 minutes
-        if n == -1 and time.time() - t >= 15:
+        if n == -1 and time.time() - t >= (2 * 60):
             print("CHUNK TIME PASSED, FIXING FILE")
+            path_chunk = f'{comments_directory}/comments_{str(num_chunks)}.csv'
+            chunk_file_exists = os.path.exists(path_chunk)
+            while chunk_file_exists:
+                print(f'Incrementing `num_chunks` from {num_chunks} to {num_chunks+1}')
+                num_chunks += 1
+                path_chunk = f'{comments_directory}/comments_{str(num_chunks)}.csv'
+                chunk_file_exists = os.path.exists(path_chunk)
+            
             # swap files
-            os.rename(f'{comments_directory}/comments.csv',
-                      f'{comments_directory}/chunks/comments_{str(num_chunks)}.csv')
+            os.rename(
+                f'{comments_directory}/comments.csv',
+                path_chunk
+            )
 
-            os.rename(f'{comments_directory}/comments_temp.csv',
-                      f'{comments_directory}/comments.csv')
+            os.rename(
+                f'{comments_directory}/comments_temp.csv',
+                f'{comments_directory}/comments.csv'
+            )
 
             # update vars
             n = 0
@@ -324,7 +387,7 @@ while(True):
     #     break
 
     # if 503 server overload, pause and try again
-    time.sleep(2)
+    time.sleep(4)
 
 
 # %%

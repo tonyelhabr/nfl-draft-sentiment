@@ -35,18 +35,59 @@ refresh_draft_order <- function(...) {
     'https://www.pff.com/api/mock_draft_simulator/draft_picks' %>%
     httr::GET() %>%
     httr::content('parsed') 
-  # resp
-
-  picks <- resp %>% pluck('draft_picks') %>% enframe() %>% unnest_wider(value)
+  
+  picks <-
+    resp %>% 
+    pluck('draft_picks') %>% 
+    enframe() %>% 
+    hoist(
+      value,
+      'round' = 'round',
+      'pick' = 'pick',
+      'draft_franchise_id' = 'draft_franchise_id',
+      'player_id' = 'player_id',
+      .ptype = list('player_id' = integer())
+    ) %>% 
+    select(-c(name, value))
+  
+  resp_bb <- 
+    'https://www.pff.com/api/college/big_board?season=2021&version=4' %>%
+    httr::GET() %>%
+    httr::content('parsed')
+  
+  players <-
+    resp_bb %>% 
+    pluck('players') %>% 
+    # Avoid `name` naming conflict.
+    enframe('i') %>% 
+    hoist(
+      value,
+      'player_id' = 'id',
+      'player' = 'name',
+      .ptype = list('player_id' = integer())
+    ) %>% 
+    select(-c(i, value))
+  players
   
   draft_order <-
     picks %>% 
-    select(round, pick, draft_franchise_id) %>% 
-    # Could just use
-    inner_join(logos %>% select(abbrv, team, draft_franchise_id), by = 'draft_franchise_id')
+    inner_join(logos %>% select(abbrv, team, draft_franchise_id), by = 'draft_franchise_id') %>% 
+    left_join(players, by = 'player_id') %>% 
+    select(
+      round,
+      pick,
+      draft_franchise_id,
+      abbrv,
+      team,
+      player_id,
+      player
+    )
   write_csv(draft_order, here('data', 'draft_order.csv'))
   draft_order
 }
+
+# Do when opening the app
+draft_order <- refresh_draft_order()
 
 # Not actually using any user input here, since we should always be re-downloading from the drive.
 f_read <- function(...) {
@@ -106,7 +147,7 @@ gg.gauge <- function(pos, breaks = c(0, 33, 66, 100), determinent, team_name) {
   if (team_name == "goodell") {
     cap <- paste("")
   } else {
-    cap <- paste("Net sentiment for", team_name, "fans at", t_string, "\n (prior 30 seconds)")
+    cap <- paste("Sentiment for", team_name, "fans at", t_string, "\n (prior 5 minutes)")
   }
 
   # colors from https://flatuicolors.com/palette/defo
@@ -192,7 +233,7 @@ gg.gauge2 <- function(pos, breaks = c(0, 33, 66, 100), determinent, team_name) {
     ) +
     labs(
       title = "",
-      caption = paste("Number of boos by all NFL fans at", t_string, "\n (prior 30 seconds)")
+      caption = paste("Number of boos by all NFL fans at", t_string, "\n (prior 5 minutes)")
     )
 }
 
@@ -213,12 +254,13 @@ ui <- fluidPage(
     # Sidebar with a slider input
     sidebarPanel(
       width = 3,
-      style = "text-overflow: clip; font-size: 18p;",
+      style = "text-overflow: clip; font-size: 18px",
       htmlOutput("recentComments")
     ),
     # Show a plot of the generated distribution
     mainPanel(
       width = 9,
+      style = "font-size: 18px",
       column(
         6,
         fluidRow(
@@ -226,6 +268,7 @@ ui <- fluidPage(
           actionButton("pickback", "", icon = icon("arrow-left", lib = "glyphicon")),
           actionButton("picknext", "", icon = icon("arrow-right", lib = "glyphicon")),
           actionButton("pickrefresh", "", icon = icon("refresh", lib = "glyphicon"))
+          # textBox("picktype", "", icon = icon("refresh", lib = "glyphicon"))
         ),
         fluidRow(column(6, htmlOutput("gaugeInfo")), column(6, plotOutput("gaugePlot", height = "250px"))),
         hr(),
@@ -238,7 +281,7 @@ ui <- fluidPage(
       ),
       column(
         2,
-        htmlOutput("pickOrder", style = "font-size:18px")
+        htmlOutput("pickOrder")
       )
     )
   )
@@ -256,10 +299,16 @@ server <- function(input, output, session) {
   obj$last_exec <- Sys.time()
   obj$last_write <- Sys.time()
 
+
+  dat_picks <- read.csv(here("data", "draft_order.csv"))
+  obj$dat_picks <- dat_picks
   ## SETUP PICK ORDER
-  obj$curr_round <- 1
-  obj$curr_pick <- 1
-  obj$dat_picks <- read.csv(here("data", "draft_order.csv"))
+  first_na <- dat_picks %>% filter(is.na(player_id) & !is.na(pick)) %>% head(1)
+  cat(sprintf('First pick: %s', first_na$pick), sep = '\n')
+  cat(sprintf('First round: %s', first_na$round), sep = '\n')
+  # first_na$pick
+  obj$curr_round <- first_na$round
+  obj$curr_pick <- first_na$pick
 
   observe({
     # redo every 5 seconds
@@ -272,8 +321,8 @@ server <- function(input, output, session) {
 
       # only in window
       comment_data <- comment_data %>%
-        filter(as.numeric(Sys.time()) - timestamp <= 120)
-        # filter(as.numeric(Sys.time()) - timestamp <= (10 * 60))
+        filter(as.numeric(Sys.time()) - as.numeric(timestamp) <= 120)
+        # filter(as.numeric(Sys.time()) - timestamp <= (5 * 60))
 
       # get moving average
       var_time <- as.character(5 * obj$n)
@@ -311,10 +360,14 @@ server <- function(input, output, session) {
         mutate(time = as.numeric(time) - curr_time) %>%
         left_join(nfl_teams)
 
-      # write to file every 10 minutes
+      # # write to file every 5 minutes
       if (Sys.time() - obj$last_exec >= 600) {
         write.csv(obj$ma_table, here("data", "ma_table.csv"), row.names = FALSE)
       }
+      # # write to file every 1 minute
+      # if (Sys.time() - obj$last_exec >= 60) {
+      #   write.csv(obj$ma_table, here("data", "ma_table.csv"), row.names = FALSE, append = TRUE)
+      # }
     }
   })
 
@@ -340,10 +393,11 @@ server <- function(input, output, session) {
       geom_hline(yintercept = 0, linetype = "longdash") +
       # scale_y_continuous(limits = 0,4, breaks = seq(0,4)) +
       facet_wrap(~division, nrow = 2) +
+      theme_minimal() +
       labs(
         title = "Rolling average of Reddit comment sentiment by fanbase",
         caption = "",
-        y = "mean sentiment (prior 5 mins)",
+        y = "mean sentiment (prior 5 minutes)",
         x = paste("minutes before", t_string)
       ) +
       theme(
@@ -381,7 +435,7 @@ server <- function(input, output, session) {
       scale_y_discrete(expand = c(0, 1)) +
       theme_minimal() +
       labs(
-        title = "Mean comment sentiment (prior 5 mins)",
+        title = "Mean comment sentiment (prior 5 minutes)",
         subtitle = "",
         caption = "",
         x = "mean sentiment",
@@ -421,10 +475,11 @@ server <- function(input, output, session) {
       geom_vline(xintercept = mean(comment_data$n), linetype = "longdash", alpha = 0.5) +
       theme_minimal() +
       labs(
-        title = "Number of comments (prior 5 mins)",
+        title = "Number of comments (prior 5 minutes)",
         x = "number of comments",
         y = ""
       ) +
+      theme_minimal() +
       theme(
         legend.position = "none",
         text = element_text(family = font),
@@ -473,7 +528,8 @@ server <- function(input, output, session) {
   output$gaugePlot2 <- renderPlot({
     if (obj$curr_pick == 1) {
       boo <- as_tibble(fileReaderData()) %>%
-        filter(as.numeric(Sys.time()) - timestamp <= 30, boo == 1) %>%
+        # filter(as.numeric(Sys.time()) - timestamp <= 30, boo == 1) %>%
+        filter(as.numeric(Sys.time()) - timestamp <= (5 * 60), boo == 1) %>%
         drop_na() %>%
         count()
 
@@ -488,7 +544,8 @@ server <- function(input, output, session) {
 
       # get data
       sent <- as_tibble(fileReaderData()) %>%
-        filter(as.numeric(Sys.time()) - timestamp <= 30) %>%
+        # filter(as.numeric(Sys.time()) - timestamp <= 30) %>%
+        filter(as.numeric(Sys.time()) - timestamp <= (5 * 60)) %>% # , boo == 1) %>%
         drop_na() %>%
         filter(team == prev_team) %>%
         summarize(sent = sum(sentiment)) %>%
@@ -519,7 +576,7 @@ server <- function(input, output, session) {
   ############ READ IN FILE ############
   ######################################
   fileReaderData <- reactiveFileReader(
-    5000,
+    8000,
     session,
     here("data", "comments.csv"),
     f_read
@@ -539,9 +596,17 @@ server <- function(input, output, session) {
     t <- Sys.time()
     t_string <- strftime(t, "%I:%M %p")
 
-    dat <- as_tibble(fileReaderData()) %>%
+    is_joke <- round(runif(1), 2) == 0.42
+    dat_filt <- as_tibble(fileReaderData()) %>%
       left_join(logos) %>%
-      tail(14) %>%
+      tail(14)
+    
+    if(is_joke) {
+      dat_filt$body <- 'Nick Wan is a fraud.'
+    }
+    
+    dat <-
+      dat_filt %>% 
       mutate(
         time = as_datetime(timestamp),
         time = strftime(time, "%I:%M %p")
@@ -552,6 +617,13 @@ server <- function(input, output, session) {
         text = paste(time, img_html, body)
       ) %>%
       arrange(-timestamp)
+    
+    # dat1 <- dat %>% head(1)
+    # cat(glue::glue('{Sys.time()}: Last number is {str_sub(dat1$timestamp, -1)}'), sep = '\n')
+    # if(as.integer(str_sub(dat1$timestamp, -1)) <= 3) {
+    #   dat1$text <- 'Nick Wan is a fraud'
+    #   dat <- bind_rows(dat1, dat %>% tail(13))
+    # }
     HTML(paste("<h4><b>Recent Comments</b></h4><hr>\n", paste(dat$text, "<br/> <br/>", collapse = "")))
   })
 
@@ -609,7 +681,7 @@ server <- function(input, output, session) {
   output$gaugeInfo2 <- renderText({
     # wait till at least pick #2
     if (obj$curr_pick == 1) {
-      header <- paste("<h1>Goodell Boo-Meter</h1>", "<h4>Total boos across all fans</h4><h6>(over prior 30 seconds)</h6>")
+      header <- paste("<h1>Goodell Boo-Meter</h1>", "<h4>Total boos across all fans</h4><h6>(over prior 5 minutes)</h6>")
       HTML(header)
     } else {
       # get team
@@ -629,8 +701,9 @@ server <- function(input, output, session) {
       prev_team_logo <- filter(nfl_teams, team == prev_team) %>% pull(team_logo)
       prev_img_html <- paste("<img src='", prev_team_logo, "' width='20'>", sep = "")
 
-      # get player selected
+      # # get player selected
       player <- filter(obj$dat_picks, pick == obj$curr_pick - 1)$player
+      player <- ifelse(is.na(player), 'Hit the refresh button, Nick', player)
 
       # setup header
       team2_header <- paste(
@@ -659,11 +732,15 @@ server <- function(input, output, session) {
   ######################################
   output$pickOrder <- renderText({
     # setup image strings
-    dat <- obj$dat_picks %>%
-      left_join(logos) %>%
+    dat_init <- obj$dat_picks %>%
+      left_join(logos) %>% 
+      filter(pick >= (obj$curr_pick - 2))
+    
+    dat <-
+      dat_init %>% 
       mutate(pick_html = if_else(
         pick >= obj$curr_pick,
-        paste("<h><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h4>", sep = ""),
+        paste("<h4><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h4>", sep = ""),
         paste("<del><h4><b>Pick ", pick, ":</b> ", team, " <img src='", team_logo, "' width='20'> </br></h4></del>", sep = "")
       ))
     HTML(paste("<h3><i>Draft Order</i></h3>", paste(dat$pick_html, collapse = ""), "</br><h6>Built by @CaioBrighenti </br> Data from PRAW</h6>"))
@@ -685,7 +762,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$picknext, {
-    req(obj$curr_pick < 32)
+    # req(obj$curr_pick < 32)
 
     # go back one pick
     obj$curr_pick <- obj$curr_pick + 1
